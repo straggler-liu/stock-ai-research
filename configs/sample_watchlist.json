@@ -1,0 +1,21 @@
+[
+  {
+    "symbol": "513310",
+    "is_qdii": true,
+    "history_csv": "data/sample_history_qdii.csv",
+    "fields": {
+      "price": 3.792,
+      "iopv": 3.1614,
+      "premium_pct": 19.95,
+      "pnl_pct": 8.2
+    }
+  },
+  {
+    "symbol": "600519",
+    "history_csv": "data/sample_history_qdii.csv",
+    "fields": {
+      "price": 1630.0,
+      "pnl_pct": -16.2
+    }
+  }
+]

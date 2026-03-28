@@ -1,0 +1,244 @@
+{\rtf1\ansi\deff0
+\b 全品种投研决策平台（优化版）开发手册 v3.0\b0\par
+\par
+> 目标：在你提供的 v2.0 架构基础上，将“研究能力”与“交易执行能力”解耦，形成可验证、可追溯、可灰度上线的工程化系统。  \par
+> 适用范围：A股、港股、美股、境内ETF、QDII ETF、公募基金、REITs。\par
+\par
+---\par
+\par
+\b 0. 先回答核心问题：能否“保证高胜率”？\b0\par
+\par
+**结论：不能保证。**\par
+任何量化/半量化投研系统都无法保证高胜率，原因包括：\par
+1. 市场非平稳（Regime shift），历史有效规则可能失效；\par
+2. 数据时滞、口径差异、异常点会放大误判；\par
+3. 流动性与冲击成本会侵蚀纸面收益；\par
+4. 黑天鹅与政策风险不可消除；\par
+5. “高胜率”不等于“高收益”，需看盈亏比、回撤、容量和稳定性。\par
+\par
+**可承诺的只有：**\par
+\tab • 决策流程标准化；\par
+\tab • 风险暴露可度量；\par
+\tab • 策略有效性可回测与可审计；\par
+\tab • 通过持续迭代提高长期期望收益/回撤比。\par
+\par
+---\par
+\par
+\b 1. 实盘效果应如何定义与评估\b0\par
+\par
+实盘效果不能只看“胜率”，建议采用四层指标：\par
+\par
+\b 1.1 收益质量\b0\par
+\tab • 年化收益（CAGR）\par
+\tab • 信息比率（IR）\par
+\tab • Alpha（相对基准）\par
+\par
+\b 1.2 风险质量\b0\par
+\tab • 最大回撤（MDD）\par
+\tab • 波动率（Vol）\par
+\tab • 下行波动率、Calmar 比率\par
+\par
+\b 1.3 执行质量\b0\par
+\tab • 滑点（bps）\par
+\tab • 成交偏离（VWAP/TWAP偏离）\par
+\tab • 指令完成率与拒单率\par
+\par
+\b 1.4 稳定性\b0\par
+\tab • 月度胜率（rolling）\par
+\tab • 因子/规则贡献稳定性\par
+\tab • 分市场（A/H/US/QDII）分桶表现\par
+\par
+---\par
+\par
+\b 2. v3.0 总体架构（优化点）\b0\par
+\par
+相较 v2.0，新增四个关键层：\par
+\par
+1. **策略编排层（Strategy Orchestrator）**：统一路由与优先级冲突处理；\par
+2. **回测与仿真层（Backtest/Replay）**：所有规则先离线验证再上线；\par
+3. **风险闸门层（Risk Gate）**：硬性规则前置，交易信号后置；\par
+4. **可观测性层（Observability）**：日志、指标、告警、审计链路。\par
+\par
+架构原则：\par
+\tab • **研究与执行分离**：Claude 给研究意见，不直接下单；\par
+\tab • **规则先于观点**：铁律规则优先级最高；\par
+\tab • **配置即策略**：阈值、路由、仓位上限全部配置化；\par
+\tab • **先仿真再实盘**：没有通过验收指标不得切实盘。\par
+\par
+---\par
+\par
+\b 3. 数据与特征工程规范\b0\par
+\par
+\b 3.1 数据源分级\b0\par
+\tab • P0（交易关键）：行情、IOPV、基金净值、汇率、公司公告；\par
+\tab • P1（增强）：资金流、估值分位、持仓披露；\par
+\tab • P2（解释）：新闻、研报摘要、社媒情绪。\par
+\par
+\b 3.2 数据质量规则（必须实现）\b0\par
+\tab • 时间戳统一 UTC 与交易所本地时区双存；\par
+\tab • 关键字段缺失率 > 2% 触发降级；\par
+\tab • 同标的多源价差 > 1% 触发人工复核；\par
+\tab • IOPV/NAV 超过合理区间触发熔断（仅告警不交易）。\par
+\par
+\b 3.3 特征快照\b0\par
+每次决策写入 `feature_snapshot`：\par
+\tab • 原始输入值\par
+\tab • 清洗后值\par
+\tab • 最终用于规则判定值\par
+用于审计与复盘。\par
+\par
+---\par
+\par
+\b 4. 规则引擎升级（从 if-else 到可审计 DSL）\b0\par
+\par
+\b 4.1 规则优先级\b0\par
+\tab • L1 铁律（不可覆盖）\par
+\tab • L2 风控（可参数化）\par
+\tab • L3 机会（信号）\par
+\tab • L4 提醒（信息）\par
+\par
+\b 4.2 冲突处理\b0\par
+当“机会信号”和“风险信号”冲突：\par
+\tab • 以高优先级规则覆盖低优先级；\par
+\tab • 输出冲突原因（human-readable）；\par
+\tab • 记录 `blocked_by_rule_id`。\par
+\par
+\b 4.3 规则示例（伪DSL）\b0\par
+```\par
+rule R_QDII_PREMIUM_KILL:\par
+  when instrument.type == "QDII_ETF" and premium_pct > 13\par
+  then action = "FORCE_SELL_ALL"\par
+  level = L1\par
+```\par
+\par
+---\par
+\par
+\b 5. 回测/验证框架（上线前闸门）\b0\par
+\par
+\b 5.1 三阶段验证\b0\par
+1. **历史回测（Backtest）**：至少覆盖牛/熊/震荡三类区间；\par
+2. **事件回放（Replay）**：对极端日期做逐日回放；\par
+3. **纸面交易（Paper Trading）**：连续 4~8 周稳定运行。\par
+\par
+\b 5.2 最低验收标准（建议）\b0\par
+\tab • 年化收益 > 基准 + 5%；\par
+\tab • 最大回撤 < 12%；\par
+\tab • Calmar > 1.0；\par
+\tab • 月度正收益月份占比 > 60%；\par
+\tab • 关键告警漏报率 < 2%。\par
+\par
+> 任一条未达标：不得进入实盘。\par
+\par
+---\par
+\par
+\b 6. 模拟盘/实盘切换设计（提前规划）\b0\par
+\par
+\b 6.1 账户抽象\b0\par
+统一接口 `BrokerAdapter`：\par
+\tab • `get_positions()`\par
+\tab • `place_order()`\par
+\tab • `cancel_order()`\par
+\tab • `get_fills()`\par
+\par
+\b 6.2 环境隔离\b0\par
+\tab • `ENV=paper`：仅记录指令，不真实成交；\par
+\tab • `ENV=live`：真实交易，必须双重确认（人机）；\par
+\tab • 相同策略参数，不同执行器。\par
+\par
+\b 6.3 防误触机制\b0\par
+\tab • live 模式必须满足：\par
+  - 风控自检通过；\par
+  - 当日数据完整；\par
+  - 人工确认口令。\par
+\par
+---\par
+\par
+\b 7. Claude 与飞书协同优化\b0\par
+\par
+\b 7.1 Claude 职责边界\b0\par
+Claude 用于：\par
+\tab • 研究解释、情景分析、催化剂推演、反方观点构建。\par
+\par
+Claude 不用于：\par
+\tab • 直接产生不可审计的交易指令；\par
+\tab • 覆盖铁律风控规则。\par
+\par
+\b 7.2 飞书卡片标准化字段\b0\par
+统一输出：\par
+\tab • 当前状态（🟢🟡🟠🔴）\par
+\tab • 触发规则 ID\par
+\tab • 三条关键数据（值+来源+时间）\par
+\tab • 单句操作建议\par
+\tab • 风险提示\par
+\par
+---\par
+\par
+\b 8. 开发实施计划（优化版）\b0\par
+\par
+\b Phase A（1~2周）：核心底座\b0\par
+\tab • 项目脚手架、配置中心、数据接入、规则引擎 v1、飞书推送。\par
+\par
+\b Phase B（1~2周）：回测与审计\b0\par
+\tab • 回测模块、事件回放、feature snapshot、指标看板。\par
+\par
+\b Phase C（1周）：模拟盘\b0\par
+\tab • BrokerAdapter（paper）、交易流水、PnL 归因。\par
+\par
+\b Phase D（1周）：实盘灰度\b0\par
+\tab • 小资金白名单、风控双确认、异常熔断、回滚预案。\par
+\par
+---\par
+\par
+\b 9. 目录结构建议\b0\par
+\par
+```\par
+stock-ai-research/\par
+  docs/\par
+  configs/\par
+    instruments.yaml\par
+    rules.yaml\par
+    risk_limits.yaml\par
+  src/\par
+    data/\par
+    router/\par
+    rules/\par
+    research/\par
+    execution/\par
+    backtest/\par
+    monitoring/\par
+  tests/\par
+    unit/\par
+    integration/\par
+    replay/\par
+```\par
+\par
+---\par
+\par
+\b 10. 你这次需求的“分阶段交付”建议\b0\par
+\par
+你提出的是完整产品路线，建议按以下里程碑执行：\par
+\par
+1. **本阶段（当前）**：确认《优化版开发手册 v3.0》；\par
+2. **阶段2**：开发“完整版工具代码（不含实盘下单）”；\par
+3. **阶段3**：用历史数据回测 + 事件回放 + paper trading 验证；\par
+4. **阶段4**：通过绩效门槛后，再开发模拟盘/实盘切换；\par
+5. **阶段5**：交付三类文档：开发手册、使用说明、研究体系说明。\par
+\par
+---\par
+\par
+\b 11. 风险声明（必须写入最终产品）\b0\par
+\par
+\tab • 本系统是“投研与风控辅助系统”，不是收益保证系统；\par
+\tab • 任何策略在不同市场阶段可能失效；\par
+\tab • 用户需对最终交易决策负责；\par
+\tab • 实盘前必须完成充分回测、仿真与资金分级管理。\par
+\par
+---\par
+\par
+\b 12. 下一步（等待你确认）\b0\par
+\par
+若你确认本手册，我将按此文档进入下一阶段：\par
+1. 先实现可运行的 MVP 代码骨架；\par
+2. 再补齐回测与验证；\par
+3. 最后实现模拟盘/实盘切换与完整文档集。\par
+}
