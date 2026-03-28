@@ -1,0 +1,39 @@
+{
+  "default": {
+    "max_reject_ratio": 0.2,
+    "max_cancel_ratio": 0.4,
+    "min_events": 5
+  },
+  "by_env": {
+    "live": {
+      "max_reject_ratio": 0.1,
+      "max_cancel_ratio": 0.2,
+      "min_events": 3
+    }
+  },
+  "by_symbol": {
+    "513310": {
+      "max_cancel_ratio": 0.35,
+      "min_events": 4
+    }
+  },
+  "windows": {
+    "7d": {
+      "days": 7,
+      "max_reject_ratio": 0.15,
+      "max_cancel_ratio": 0.35,
+      "min_events": 3
+    },
+    "30d": {
+      "days": 30,
+      "max_reject_ratio": 0.2,
+      "max_cancel_ratio": 0.4,
+      "min_events": 8
+    }
+  },
+  "actions": {
+    "yellow": {"push": false, "pause_live": false},
+    "orange": {"push": true, "pause_live": false},
+    "red": {"push": true, "pause_live": true}
+  }
+}

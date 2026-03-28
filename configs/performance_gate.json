@@ -1,0 +1,6 @@
+{
+  "min_total_return_pct": 5.0,
+  "max_drawdown_pct": 12.0,
+  "min_calmar": 1.0,
+  "min_win_rate_pct": 55.0
+}

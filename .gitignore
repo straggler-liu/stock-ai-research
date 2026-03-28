@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+data/paper_ledger.json
+data/backtest_report.json
+data/backtest_report.csv
+data/idempotency.json
+data/trade_events.jsonl
+data/orders.json
+data/execution_quality_report.json
+data/live_gate_state.json
