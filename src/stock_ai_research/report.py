@@ -62,7 +62,11 @@ def generate_batch_backtest_report(config_path: str, out_json: str, out_csv: str
                 "calmar",
                 "benchmark_return_pct",
                 "alpha_pct",
+                "total_cost_pct",
+                "profit_loss_ratio",
+                "max_consecutive_losses",
             ],
+            extrasaction="ignore",
         )
         writer.writeheader()
         for report in reports:

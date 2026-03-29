@@ -12,10 +12,31 @@
   },
   {
     "symbol": "600519",
-    "history_csv": "data/sample_history_qdii.csv",
+    "history_csv": "data/sample_history_a_stock.csv",
     "fields": {
-      "price": 1630.0,
-      "pnl_pct": -16.2
+      "price": 1530.0,
+      "pnl_pct": -4.5,
+      "ma20_pct": -4.0,
+      "rsi14": 32.0
+    }
+  },
+  {
+    "symbol": "00700",
+    "history_csv": "data/sample_history_hk_stock.csv",
+    "fields": {
+      "price": 350.0,
+      "pnl_pct": -3.0,
+      "week52_low_pct": 8.0
+    }
+  },
+  {
+    "symbol": "AAPL",
+    "history_csv": "data/sample_history_us_stock.csv",
+    "fields": {
+      "price": 185.0,
+      "pnl_pct": -2.0,
+      "rsi14": 28.0,
+      "day_drawdown_pct": -1.5
     }
   }
 ]

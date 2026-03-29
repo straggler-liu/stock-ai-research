@@ -32,4 +32,13 @@ def evaluate_performance_gate(report: BacktestReport, gate: dict) -> GateResult:
     if report.win_rate_pct < gate["min_win_rate_pct"]:
         failures.append(f"win_rate_pct<{gate['min_win_rate_pct']}")
 
+    if "min_trades" in gate and report.trades < gate["min_trades"]:
+        failures.append(f"trades<{gate['min_trades']}")
+
+    if "min_profit_loss_ratio" in gate and report.profit_loss_ratio < gate["min_profit_loss_ratio"]:
+        failures.append(f"profit_loss_ratio<{gate['min_profit_loss_ratio']}")
+
+    if "max_consecutive_losses" in gate and report.max_consecutive_losses > gate["max_consecutive_losses"]:
+        failures.append(f"max_consecutive_losses>{gate['max_consecutive_losses']}")
+
     return GateResult(passed=not failures, failures=failures)

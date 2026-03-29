@@ -9,7 +9,7 @@ from .models import Environment, TradeOrder
 from .execution_report import generate_execution_quality_report
 from .execution_alerts import evaluate_execution_alerts, load_alert_config, maybe_push_execution_alert
 from .live_gate import LiveGate
-from .monitoring import run_watchlist
+from .monitoring import run_morning_brief, run_watchlist
 from .orchestrator import run_once
 from .report import generate_batch_backtest_report
 from .risk import pretrade_risk_check
@@ -109,7 +109,21 @@ def cmd_batch(args: argparse.Namespace) -> None:
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
-def cmd_report(args: argparse.Namespace) -> None:
+def cmd_brief(args: argparse.Namespace) -> None:
+    brief = run_morning_brief(
+        args.config,
+        webhook_url=args.webhook,
+        enforce_gate=args.enforce_gate,
+        gate_path=args.gate,
+        initial_cash=args.initial_cash,
+        market_news=args.market_news,
+        exec_events_log=args.exec_events_log,
+        alert_config_path=args.alert_config,
+    )
+    print(json.dumps(brief, ensure_ascii=False, indent=2))
+
+
+
     payload = generate_batch_backtest_report(args.config, args.out_json, args.out_csv)
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
@@ -216,6 +230,17 @@ def main() -> None:
     batch.add_argument("--gate", default="configs/performance_gate.json")
     batch.add_argument("--initial-cash", type=float, default=100000.0)
     batch.set_defaults(func=cmd_batch)
+
+    brief = subparsers.add_parser("brief", help="智能晨报汇总推送")
+    brief.add_argument("--config", required=True, help="watchlist json")
+    brief.add_argument("--webhook", default="", help="飞书 webhook (可选)")
+    brief.add_argument("--enforce-gate", action="store_true", help="启用绩效门槛")
+    brief.add_argument("--gate", default="configs/performance_gate.json")
+    brief.add_argument("--initial-cash", type=float, default=100000.0)
+    brief.add_argument("--market-news", default="", help="当日市场资讯摘要文本")
+    brief.add_argument("--exec-events-log", default="data/trade_events.jsonl")
+    brief.add_argument("--alert-config", default="configs/execution_alerts.json")
+    brief.set_defaults(func=cmd_brief)
 
     report = subparsers.add_parser("report", help="批量回测汇总报表导出")
     report.add_argument("--config", required=True)

@@ -35,6 +35,7 @@ def _num(snapshot: MarketSnapshot, field: str, default: float = 0.0) -> float:
 
 def default_rules() -> list[Rule]:
     return [
+        # ── L1 铁律止损（全品种） ──────────────────────────────────────────
         Rule(
             rule_id="R_STOP_LOSS_15",
             level=RuleLevel.L1,
@@ -42,6 +43,15 @@ def default_rules() -> list[Rule]:
             reason="跌幅超过-15%，触发铁律止损。",
             predicate=lambda s: _num(s, "pnl_pct") <= -15,
         ),
+        # ── L1 MA20 趋势止损（全品种，含 rsi14 字段时启用）────────────────
+        Rule(
+            rule_id="R_TREND_STOP_MA20",
+            level=RuleLevel.L1,
+            action="FORCE_SELL_ALL",
+            reason="价格跌破MA20超过-5%且RSI持续弱势，触发趋势止损。",
+            predicate=lambda s: "ma20_pct" in s.fields and _num(s, "ma20_pct") < -5 and _num(s, "rsi14", 50) < 45,
+        ),
+        # ── L1 QDII ETF 溢价封杀 ─────────────────────────────────────────
         Rule(
             rule_id="R_QDII_PREMIUM_13",
             level=RuleLevel.L1,
@@ -50,6 +60,7 @@ def default_rules() -> list[Rule]:
             predicate=lambda s: _num(s, "premium_pct") > 13,
             only_types={InstrumentType.QDII_ETF},
         ),
+        # ── L2 ETF 溢价风控 ───────────────────────────────────────────────
         Rule(
             rule_id="R_PREMIUM_10",
             level=RuleLevel.L2,
@@ -66,13 +77,104 @@ def default_rules() -> list[Rule]:
             predicate=lambda s: 3 < _num(s, "premium_pct") <= 10,
             only_types={InstrumentType.CN_ETF, InstrumentType.QDII_ETF},
         ),
+        # ── L2 QDII ETF 折价消失止盈 ──────────────────────────────────────
+        Rule(
+            rule_id="R_QDII_PREMIUM_ZERO_EXIT",
+            level=RuleLevel.L2,
+            action="NO_BUY",
+            reason="QDII ETF溢价转正（>1%），折价套利窗口关闭，止盈离场。",
+            predicate=lambda s: _num(s, "premium_pct") > 1,
+            only_types={InstrumentType.CN_ETF, InstrumentType.QDII_ETF},
+        ),
+        # ── L2 港股 RSI 超买止盈 ──────────────────────────────────────────
+        Rule(
+            rule_id="R_HK_STOCK_RSI_OVERBOUGHT",
+            level=RuleLevel.L2,
+            action="NO_BUY",
+            reason="港股RSI>70，超买区域，止盈离场暂停建仓。",
+            predicate=lambda s: "rsi14" in s.fields and _num(s, "rsi14") > 70,
+            only_types={InstrumentType.HK_STOCK},
+        ),
+        # ── L2 美股 RSI 超买止盈 ──────────────────────────────────────────
+        Rule(
+            rule_id="R_US_STOCK_RSI_OVERBOUGHT",
+            level=RuleLevel.L2,
+            action="NO_BUY",
+            reason="美股RSI>70，超买区域，止盈离场暂停建仓。",
+            predicate=lambda s: "rsi14" in s.fields and _num(s, "rsi14") > 70,
+            only_types={InstrumentType.US_STOCK},
+        ),
+        # ── L2 A股 RSI 超买止盈 ───────────────────────────────────────────
+        Rule(
+            rule_id="R_A_STOCK_RSI_OVERBOUGHT",
+            level=RuleLevel.L2,
+            action="NO_BUY",
+            reason="A股RSI>70，超买区域，止盈离场暂停建仓。",
+            predicate=lambda s: "rsi14" in s.fields and _num(s, "rsi14") > 70,
+            only_types={InstrumentType.A_STOCK},
+        ),
+        # ── L3 ETF 深度折价机会（需均线趋势过滤）────────────────────────────
         Rule(
             rule_id="R_DISCOUNT_OPPORTUNITY",
             level=RuleLevel.L3,
             action="WATCH_BUY",
-            reason="出现折价，可关注建仓机会。",
-            predicate=lambda s: _num(s, "premium_pct") < 0,
+            reason="折价超过1.5%且价格不处于强下跌趋势，具备安全边际，关注建仓机会。",
+            predicate=lambda s: _num(s, "premium_pct") < -1.5 and _num(s, "ma20_pct", 0) > -5,
             only_types={InstrumentType.CN_ETF, InstrumentType.QDII_ETF},
+        ),
+        # ── L3 A股 MA20 + RSI 超卖共振 ───────────────────────────────────
+        Rule(
+            rule_id="R_A_STOCK_MA20_DIP",
+            level=RuleLevel.L3,
+            action="WATCH_BUY",
+            reason="A股价格偏离MA20超-3%且RSI<40，关注超跌建仓机会。",
+            predicate=lambda s: _num(s, "ma20_pct") < -3 and _num(s, "rsi14", 50) < 40,
+            only_types={InstrumentType.A_STOCK},
+        ),
+        # ── L3 A股 RSI 极度超卖 ───────────────────────────────────────────
+        Rule(
+            rule_id="R_A_STOCK_RSI_OVERSOLD",
+            level=RuleLevel.L3,
+            action="WATCH_BUY",
+            reason="A股RSI<30，极度超卖，关注反弹买入机会。",
+            predicate=lambda s: "rsi14" in s.fields and _num(s, "rsi14", 50) < 30,
+            only_types={InstrumentType.A_STOCK},
+        ),
+        # ── L3 港股 52周低位 ──────────────────────────────────────────────
+        Rule(
+            rule_id="R_HK_STOCK_WEEK52_LOW",
+            level=RuleLevel.L3,
+            action="WATCH_BUY",
+            reason="港股价格处于52周低位区间（低位上方10%以内），关注底部建仓机会。",
+            predicate=lambda s: "week52_low_pct" in s.fields and 0 < _num(s, "week52_low_pct", 100) <= 10,
+            only_types={InstrumentType.HK_STOCK},
+        ),
+        # ── L3 美股 RSI 超卖 ──────────────────────────────────────────────
+        Rule(
+            rule_id="R_US_STOCK_RSI_OVERSOLD",
+            level=RuleLevel.L3,
+            action="WATCH_BUY",
+            reason="美股RSI<30，超卖区域，关注反弹买入机会。",
+            predicate=lambda s: "rsi14" in s.fields and _num(s, "rsi14", 50) < 30,
+            only_types={InstrumentType.US_STOCK},
+        ),
+        # ── L3 美股 单日大跌止跌反弹 ──────────────────────────────────────
+        Rule(
+            rule_id="R_US_STOCK_DRAWDOWN_BOUNCE",
+            level=RuleLevel.L3,
+            action="WATCH_BUY",
+            reason="美股单日跌幅超5%且总持仓亏损<15%，关注止跌反弹机会。",
+            predicate=lambda s: _num(s, "day_drawdown_pct") < -5 and _num(s, "pnl_pct") > -15,
+            only_types={InstrumentType.US_STOCK},
+        ),
+        # ── L3 基金 PB 低估值 ─────────────────────────────────────────────
+        Rule(
+            rule_id="R_FUND_PB_LOW",
+            level=RuleLevel.L3,
+            action="WATCH_BUY",
+            reason="基金PB<1.0，处于低估值区间，关注建仓机会。",
+            predicate=lambda s: "pb_ratio" in s.fields and 0 < _num(s, "pb_ratio", 99) < 1.0,
+            only_types={InstrumentType.FUND},
         ),
     ]
 
