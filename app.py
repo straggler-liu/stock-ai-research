@@ -604,7 +604,222 @@ class TradeTab(ttk.Frame):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SECTION 7: SymbolEditDialog — 标的编辑弹窗
+# SECTION 7: Tab5 — 新闻分析
+# ══════════════════════════════════════════════════════════════════════════════
+
+class NewsTab(ttk.Frame):
+    """LLM-powered news analysis tab (display only, does not affect trading signals)."""
+
+    _PROVIDER_MAP = {
+        "OpenAI":    "openai",
+        "Claude":    "claude",
+        "Gemini":    "gemini",
+        "DeepSeek":  "deepseek",
+    }
+    _MODEL_DISPLAY = {
+        "openai":   "gpt-4o-mini",
+        "claude":   "claude-haiku-4-5-20251001",
+        "gemini":   "gemini-2.0-flash",
+        "deepseek": "deepseek-chat",
+    }
+
+    def __init__(self, parent, worker: Worker):
+        super().__init__(parent)
+        self.worker = worker
+        self._build_ui()
+        self.refresh_symbols(load_watchlist())
+
+    def refresh_symbols(self, watchlist: list[dict]) -> None:
+        symbols = ["大盘（市场整体）"] + [item["symbol"] for item in watchlist]
+        self._sym_combo["values"] = symbols
+        if not self._sym_combo.get():
+            self._sym_combo.set(symbols[0] if symbols else "")
+
+    def _build_ui(self):
+        # ── 控件栏 ─────────────────────────────────────────────────────────
+        ctrl = ttk.LabelFrame(self, text="分析设置", padding=10)
+        ctrl.pack(fill="x", padx=8, pady=8)
+
+        ttk.Label(ctrl, text="标的：").grid(row=0, column=0, sticky="e", padx=4)
+        self._sym_combo = ttk.Combobox(ctrl, state="readonly", width=18)
+        self._sym_combo.grid(row=0, column=1, padx=4)
+
+        ttk.Label(ctrl, text="LLM 提供方：").grid(row=0, column=2, sticky="e", padx=(16, 4))
+        self._provider_var = tk.StringVar(value="OpenAI")
+        provider_combo = ttk.Combobox(
+            ctrl, textvariable=self._provider_var,
+            values=list(self._PROVIDER_MAP), state="readonly", width=12,
+        )
+        provider_combo.grid(row=0, column=3, padx=4)
+        provider_combo.bind("<<ComboboxSelected>>", self._on_provider_change)
+
+        self._model_var = tk.StringVar(value="gpt-4o-mini")
+        ttk.Label(ctrl, textvariable=self._model_var, foreground="gray").grid(
+            row=0, column=4, padx=8)
+
+        self._btn_analyze = ttk.Button(ctrl, text="开始分析", command=self._run_analysis, width=12)
+        self._btn_analyze.grid(row=0, column=5, padx=12)
+
+        self._status_var = tk.StringVar(value="请在「配置管理」Tab 中设置 API Key，然后点击「开始分析」")
+        ttk.Label(ctrl, textvariable=self._status_var, foreground="gray").grid(
+            row=1, column=0, columnspan=6, sticky="w", padx=4, pady=(4, 0))
+
+        # ── 结果区 ─────────────────────────────────────────────────────────
+        results = ttk.LabelFrame(self, text="分析结果", padding=8)
+        results.pack(fill="both", expand=True, padx=8, pady=4)
+
+        # 左侧：情感徽章 + 风险徽章 + 摘要
+        left = ttk.Frame(results, width=200)
+        left.pack(side="left", fill="y", padx=(0, 12))
+        left.pack_propagate(False)
+
+        ttk.Label(left, text="市场情感", font=("微软雅黑", 9, "bold")).pack(pady=(6, 2))
+        self._sentiment_badge = tk.Label(
+            left, text="—", width=14, height=2,
+            font=("微软雅黑", 11, "bold"), relief="groove", anchor="center",
+        )
+        self._sentiment_badge.pack(pady=4)
+
+        ttk.Label(left, text="风险等级", font=("微软雅黑", 9, "bold")).pack(pady=(8, 2))
+        self._risk_badge = tk.Label(
+            left, text="—", width=14,
+            font=("微软雅黑", 10), relief="groove", anchor="center",
+        )
+        self._risk_badge.pack(pady=4)
+
+        ttk.Separator(left, orient="horizontal").pack(fill="x", pady=10)
+        ttk.Label(left, text="一句话摘要：", font=("微软雅黑", 9, "bold")).pack(anchor="w")
+        self._summary_label = tk.Label(
+            left, text="", wraplength=185, justify="left",
+            font=("微软雅黑", 9),
+        )
+        self._summary_label.pack(anchor="w", pady=4)
+
+        # 右侧：核心要点 + 来源文章
+        right = ttk.Frame(results)
+        right.pack(side="left", fill="both", expand=True)
+
+        ttk.Label(right, text="核心要点：", font=("微软雅黑", 9, "bold")).pack(anchor="w")
+        self._kp_labels: list[tk.Label] = []
+        for _ in range(3):
+            lbl = tk.Label(right, text="", wraplength=450, justify="left", font=("微软雅黑", 9))
+            lbl.pack(anchor="w", padx=10, pady=2)
+            self._kp_labels.append(lbl)
+
+        ttk.Separator(right, orient="horizontal").pack(fill="x", pady=6)
+        ttk.Label(right, text="相关资讯（双击打开链接）：", font=("微软雅黑", 9, "bold")).pack(anchor="w")
+
+        art_cols = ("title", "source", "time")
+        self._art_tree = ttk.Treeview(right, columns=art_cols, show="headings", height=6)
+        self._art_tree.heading("title",  text="标题")
+        self._art_tree.heading("source", text="来源")
+        self._art_tree.heading("time",   text="时间")
+        self._art_tree.column("title",  width=350)
+        self._art_tree.column("source", width=100, anchor="center")
+        self._art_tree.column("time",   width=120, anchor="center")
+
+        art_vsb = ttk.Scrollbar(right, orient="vertical", command=self._art_tree.yview)
+        self._art_tree.configure(yscrollcommand=art_vsb.set)
+        self._art_tree.pack(side="left", fill="both", expand=True)
+        art_vsb.pack(side="right", fill="y")
+        self._art_tree.bind("<Double-1>", self._open_article)
+        self._article_urls: list[str] = []
+
+    def _on_provider_change(self, _event=None):
+        provider_key = self._PROVIDER_MAP.get(self._provider_var.get(), "openai")
+        self._model_var.set(self._MODEL_DISPLAY.get(provider_key, ""))
+
+    def _run_analysis(self):
+        symbol = self._sym_combo.get()
+        if not symbol:
+            messagebox.showwarning("提示", "请先选择标的")
+            return
+        provider_key = self._PROVIDER_MAP[self._provider_var.get()]
+        self._btn_analyze.config(state="disabled")
+        self._status_var.set("分析中，请稍候...")
+        self.worker.run(
+            self._do_analysis,
+            (symbol, provider_key),
+            self._on_done,
+            self._on_error,
+        )
+
+    def _do_analysis(self, symbol: str, provider: str):
+        from stock_ai_research.llm_client import client_from_settings, load_llm_settings
+        from stock_ai_research.news_analyzer import NewsAnalyzer
+        from stock_ai_research.news_fetcher import NewsFetcher
+        settings = load_llm_settings()
+        settings["active_provider"] = provider
+        llm = client_from_settings(settings)
+        analyzer = NewsAnalyzer(llm, NewsFetcher())
+        if symbol == "大盘（市场整体）":
+            return analyzer.analyze_market()
+        return analyzer.analyze_symbol(symbol)
+
+    def _on_done(self, result):
+        from stock_ai_research.news_analyzer import NewsAnalysis
+        # Sentiment badge
+        sentiment_cfg = {
+            "bullish": ("📈 看涨",  "#C8E6C9", "#1B5E20"),
+            "bearish": ("📉 看跌",  "#FFCCCC", "#B71C1C"),
+            "neutral": ("➡️ 中性",  "#E0E0E0", "#424242"),
+        }
+        text, bg, fg = sentiment_cfg.get(result.sentiment, ("—", "#F5F5F5", "black"))
+        self._sentiment_badge.config(text=text, bg=bg, fg=fg)
+
+        # Risk badge
+        risk_cfg = {
+            "low":    ("风险：低",  "#C8E6C9", "#1B5E20"),
+            "medium": ("风险：中",  "#FFF9C4", "#827717"),
+            "high":   ("风险：高",  "#FFCCCC", "#B71C1C"),
+        }
+        rt, rbg, rfg = risk_cfg.get(result.risk_level, ("风险：—", "#F5F5F5", "black"))
+        self._risk_badge.config(text=rt, bg=rbg, fg=rfg)
+
+        # Summary
+        summary_text = result.summary or (result.error if result.error else "（无摘要）")
+        self._summary_label.config(text=summary_text)
+
+        # Key points
+        for i, lbl in enumerate(self._kp_labels):
+            pt = result.key_points[i] if i < len(result.key_points) else ""
+            lbl.config(text=f"• {pt}" if pt else "")
+
+        # Articles tree
+        for iid in self._art_tree.get_children():
+            self._art_tree.delete(iid)
+        self._article_urls = []
+        for a in result.articles:
+            self._art_tree.insert("", "end", values=(
+                a["title"][:80],
+                a["source"],
+                a["published_at"][:16],
+            ))
+            self._article_urls.append(a.get("url", ""))
+
+        now = datetime.now().strftime("%H:%M:%S")
+        status = f"上次分析：{now}  [{result.provider} / {self._MODEL_DISPLAY.get(result.provider, '')}]"
+        if result.error:
+            status += f"  ⚠ {result.error}"
+        self._status_var.set(status)
+        self._btn_analyze.config(state="normal")
+
+    def _on_error(self, err: str):
+        self._status_var.set(f"分析失败：{err}")
+        self._btn_analyze.config(state="normal")
+
+    def _open_article(self, _event):
+        import webbrowser
+        sel = self._art_tree.selection()
+        if not sel:
+            return
+        idx = self._art_tree.index(sel[0])
+        if idx < len(self._article_urls) and self._article_urls[idx]:
+            webbrowser.open(self._article_urls[idx])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SECTION 8: SymbolEditDialog — 标的编辑弹窗
 # ══════════════════════════════════════════════════════════════════════════════
 
 class SymbolEditDialog(tk.Toplevel):
@@ -817,7 +1032,44 @@ class SettingsTab(ttk.Frame):
         self._wb_status = ttk.Label(btn_row, text="", foreground="gray")
         self._wb_status.pack(side="left", padx=8)
 
-        # ── D. 实盘闸门 ──────────────────────────────────────────────────
+        # ── D. LLM 配置 ──────────────────────────────────────────────────
+        llm_frame = ttk.LabelFrame(inner, text="LLM 新闻分析配置", padding=10)
+        llm_frame.pack(fill="x", padx=10, pady=4)
+
+        ttk.Label(llm_frame, text="默认提供方：", anchor="e", width=18).grid(
+            row=0, column=0, sticky="e", padx=4, pady=4)
+        self._llm_provider_var = tk.StringVar()
+        ttk.Combobox(
+            llm_frame, textvariable=self._llm_provider_var,
+            values=["openai", "claude", "gemini", "deepseek"],
+            state="readonly", width=14,
+        ).grid(row=0, column=1, sticky="w", padx=4, pady=4)
+
+        key_fields = [
+            ("openai_key",   "OpenAI API Key"),
+            ("claude_key",   "Claude API Key"),
+            ("gemini_key",   "Gemini API Key"),
+            ("deepseek_key", "DeepSeek API Key"),
+        ]
+        self._llm_key_vars: dict[str, tk.StringVar] = {}
+        for i, (key, label) in enumerate(key_fields, start=1):
+            ttk.Label(llm_frame, text=f"{label}：", anchor="e", width=18).grid(
+                row=i, column=0, sticky="e", padx=4, pady=3)
+            var = tk.StringVar()
+            self._llm_key_vars[key] = var
+            ttk.Entry(llm_frame, textvariable=var, width=52, show="*").grid(
+                row=i, column=1, sticky="w", padx=4, pady=3)
+
+        btn_llm_row = ttk.Frame(llm_frame)
+        btn_llm_row.grid(row=len(key_fields) + 1, column=0, columnspan=2, pady=8)
+        ttk.Button(btn_llm_row, text="保存 LLM 配置", command=self._save_llm_settings,
+                   width=14).pack(side="left", padx=6)
+        self._llm_save_status = ttk.Label(btn_llm_row, text="", foreground="gray")
+        self._llm_save_status.pack(side="left", padx=6)
+
+        self._load_llm_settings_to_ui()
+
+        # ── E. 实盘闸门 ──────────────────────────────────────────────────
         gate_live = ttk.LabelFrame(inner, text="实盘闸门控制", padding=10)
         gate_live.pack(fill="x", padx=10, pady=(4, 10))
 
@@ -960,6 +1212,22 @@ class SettingsTab(ttk.Frame):
         except Exception as e:
             messagebox.showerror("错误", str(e))
 
+    # ── LLM 配置 ──────────────────────────────────────────────────────────────
+
+    def _load_llm_settings_to_ui(self):
+        from stock_ai_research.llm_client import load_llm_settings
+        cfg = load_llm_settings()
+        self._llm_provider_var.set(cfg.get("active_provider", "openai"))
+        for key, var in self._llm_key_vars.items():
+            var.set(cfg.get(key, ""))
+
+    def _save_llm_settings(self):
+        from stock_ai_research.llm_client import save_llm_settings
+        data = {"active_provider": self._llm_provider_var.get()}
+        data.update({k: v.get().strip() for k, v in self._llm_key_vars.items()})
+        save_llm_settings(data)
+        self._llm_save_status.config(text="已保存", foreground="green")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION 9: App 根窗口
@@ -992,17 +1260,20 @@ class App(tk.Tk):
         self._dashboard = DashboardTab(notebook, worker)
         self._backtest  = BacktestTab(notebook, worker)
         self._trade     = TradeTab(notebook, worker)
+        self._news      = NewsTab(notebook, worker)
         self._settings  = SettingsTab(notebook, worker,
                                       on_watchlist_saved=self._on_watchlist_saved)
 
         notebook.add(self._dashboard, text="  📊 监控面板  ")
         notebook.add(self._backtest,  text="  📈 回测分析  ")
         notebook.add(self._trade,     text="  💹 模拟交易  ")
+        notebook.add(self._news,      text="  📰 新闻分析  ")
         notebook.add(self._settings,  text="  ⚙️  配置管理  ")
 
     def _on_watchlist_saved(self, watchlist: list[dict]):
         """watchlist 保存后同步刷新各 Tab。"""
         self._backtest.refresh_symbols(watchlist)
+        self._news.refresh_symbols(watchlist)
         self._dashboard.refresh()
 
 

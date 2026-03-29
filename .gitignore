@@ -10,3 +10,7 @@ data/trade_events.jsonl
 data/orders.json
 data/execution_quality_report.json
 data/live_gate_state.json
+
+configs/llm_settings.json
+configs/app_settings.json
+.venv/
